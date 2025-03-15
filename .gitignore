@@ -32,4 +32,4 @@ certs/
 
 # Build artifacts
 dist/
-cmd/wctestapp/main.go
+wctestapp
