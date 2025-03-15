@@ -1,7 +1,7 @@
 FROM golang:1.24-alpine AS builder
 
-# Set working directory
-WORKDIR /app
+# Set working directory according to Go module path
+WORKDIR /go/src/github.com/korjavin/wctestapp
 
 # Copy go.mod and go.sum
 COPY go.mod go.sum ./
@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o wctestapp ./cmd/wctestapp
+RUN CGO_ENABLED=0 GOOS=linux go build -o wctestapp cmd/wctestapp/main.go
 
 # Create a minimal image
 FROM alpine:latest
@@ -25,10 +25,10 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 
 # Copy the binary from the builder stage
-COPY --from=builder /app/wctestapp .
+COPY --from=builder /go/src/github.com/korjavin/wctestapp/wctestapp .
 
 # Copy web assets
-COPY --from=builder /app/web ./web
+COPY --from=builder /go/src/github.com/korjavin/wctestapp/web ./web
 
 # Create directory for certificates
 RUN mkdir -p /app/certs
