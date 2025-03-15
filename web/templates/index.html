@@ -1,0 +1,138 @@
+{{define "content"}}
+<div class="container">
+    <section class="card">
+        <h2>Connect Your Wallet</h2>
+        <p>Click the button below to connect your Ethereum wallet using WalletConnect v2.0.</p>
+        
+        <div class="connect-section">
+            <button id="connect-button" class="primary-button">Connect Wallet</button>
+        </div>
+        
+        <div id="qr-section" class="qr-section" style="display: none;">
+            <h3>Scan this QR code with your wallet</h3>
+            <div id="qr-code"></div>
+            <p class="info-text">Open your WalletConnect-compatible wallet app and scan this QR code to establish a connection.</p>
+        </div>
+        
+        <div id="loading-section" class="loading-section" style="display: none;">
+            <div class="spinner"></div>
+            <p>Waiting for wallet connection...</p>
+        </div>
+    </section>
+    
+    <section class="card info-card">
+        <h2>How It Works</h2>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Generate Pairing</h3>
+                    <p>The app generates a unique pairing URI and QR code.</p>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Establish Connection</h3>
+                    <p>Your wallet scans the QR code and connects via the relay server.</p>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Sign Messages</h3>
+                    <p>Once connected, you can sign messages securely without exposing your private key.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <section class="card log-card">
+        <h2>Connection Logs</h2>
+        <div id="logs" class="logs">
+            <p class="log-entry">Waiting for connection...</p>
+        </div>
+    </section>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const connectButton = document.getElementById('connect-button');
+        const qrSection = document.getElementById('qr-section');
+        const qrCode = document.getElementById('qr-code');
+        const loadingSection = document.getElementById('loading-section');
+        const logs = document.getElementById('logs');
+        
+        let sessionId = null;
+        
+        function addLog(message) {
+            const logEntry = document.createElement('p');
+            logEntry.className = 'log-entry';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(logEntry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        connectButton.addEventListener('click', async function() {
+            try {
+                // Show loading
+                connectButton.disabled = true;
+                loadingSection.style.display = 'block';
+                addLog('Creating new WalletConnect session...');
+                
+                // Create a new session
+                const response = await fetch('/api/session/create', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to create session');
+                }
+                
+                const data = await response.json();
+                sessionId = data.session_id;
+                
+                // Display QR code
+                qrCode.innerHTML = `<img src="${data.qr_code}" alt="QR Code">`;
+                qrSection.style.display = 'block';
+                loadingSection.style.display = 'none';
+                
+                addLog('Session created. Scan the QR code with your wallet.');
+                addLog(`Pairing URI: ${data.pairing_uri}`);
+                
+                // Poll for session status
+                pollSessionStatus();
+            } catch (error) {
+                addLog(`Error: ${error.message}`);
+                connectButton.disabled = false;
+                loadingSection.style.display = 'none';
+            }
+        });
+        
+        async function pollSessionStatus() {
+            if (!sessionId) return;
+            
+            try {
+                const response = await fetch(`/api/session/status?session=${sessionId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to get session status');
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'active') {
+                    addLog(`Connected to wallet: ${data.wallet_address}`);
+                    window.location.href = `/connected?session=${sessionId}`;
+                    return;
+                }
+                
+                // Continue polling
+                setTimeout(pollSessionStatus, 2000);
+            } catch (error) {
+                addLog(`Error polling session status: ${error.message}`);
+                setTimeout(pollSessionStatus, 5000);
+            }
+        }
+    });
+</script>
+{{end}}
