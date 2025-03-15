@@ -85,9 +85,11 @@ The application can be configured using the following environment variables:
 
 ### HTTPS Setup
 
-For production use, HTTPS is recommended and may be required by some wallets. To enable HTTPS:
+For production use, HTTPS is recommended and may be required by some wallets. There are two options for enabling HTTPS:
 
-1. Generate self-signed certificates (for testing):
+#### Option 1: Self-signed certificates (for testing only)
+
+1. Generate self-signed certificates:
 
 ```bash
 ./scripts/generate-certs.sh
@@ -99,13 +101,35 @@ For production use, HTTPS is recommended and may be required by some wallets. To
 ENABLE_TLS=true ./wctestapp
 ```
 
-3. For Docker deployment with HTTPS:
+3. For Docker deployment with self-signed certificates:
 
 ```bash
 ENABLE_TLS=true SERVER_URL=https://yourdomain.com docker-compose up -d
 ```
 
-For production, use certificates from a trusted certificate authority like Let's Encrypt.
+#### Option 2: Let's Encrypt certificates (recommended for production)
+
+The application now includes Nginx as a reverse proxy with Let's Encrypt integration for automatic HTTPS:
+
+1. Initialize Let's Encrypt certificates for your domain:
+
+```bash
+./scripts/init-letsencrypt.sh yourdomain.com your-email@example.com
+```
+
+2. Start the application with Docker Compose:
+
+```bash
+SERVER_URL=https://yourdomain.com docker-compose up -d
+```
+
+This setup will:
+- Automatically obtain and renew Let's Encrypt certificates
+- Handle HTTPS termination at the Nginx level
+- Proxy both HTTP and WebSocket connections securely
+- Redirect HTTP traffic to HTTPS
+
+The certificates will be automatically renewed every 60 days.
 
 ## Using with a Public Domain
 
@@ -165,8 +189,15 @@ wctestapp/
 ├── pkg/                   # Public packages
 │   └── utils/             # Utility functions
 ├── scripts/               # Utility scripts
+│   ├── generate-certs.sh  # Generate self-signed certificates
+│   └── init-letsencrypt.sh # Initialize Let's Encrypt certificates
+├── nginx/                 # Nginx configuration
+│   └── nginx.conf         # Nginx configuration file
+├── certbot/               # Let's Encrypt certificates (created at runtime)
+│   ├── conf/              # Certificate configuration
+│   └── www/               # ACME challenge files
 ├── Dockerfile             # Docker build instructions
-└── docker-compose.yml     # Docker Compose configuration
+└── docker-compose.yml     # Docker Compose configuration with Nginx and Certbot
 ```
 
 ## Building and Testing
@@ -204,10 +235,26 @@ If you're having trouble connecting your wallet:
 
 If you're having trouble with HTTPS:
 
+#### Self-signed certificates:
 1. Ensure your certificates are valid and in the correct location
 2. Check that the CERT_FILE and KEY_FILE environment variables are set correctly
 3. For self-signed certificates, you may need to accept the security warning in your browser
 
+#### Let's Encrypt with Nginx:
+1. Make sure your domain is correctly pointing to your server's IP address
+2. Check Nginx logs for certificate issues: `docker-compose logs nginx`
+3. Check Certbot logs: `docker-compose logs certbot`
+4. If certificates aren't being issued, try running the init script again with the production flag uncommented
+5. Ensure ports 80 and 443 are open on your firewall and not blocked by your hosting provider
+
+### WebSocket Connection Issues
+
+If you're having trouble with WebSocket connections:
+
+1. Ensure the WebSocket URL is using the correct protocol (ws:// or wss://)
+2. With the Nginx proxy, all WebSocket connections should use wss:// protocol
+3. Check browser console for WebSocket connection errors
+4. Verify that the Nginx configuration is correctly proxying WebSocket connections
 
 ## Acknowledgements
 
