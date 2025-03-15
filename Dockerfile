@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o wctestapp ./cmd/wctestapp
+RUN CGO_ENABLED=0 GOOS=linux go build -o wctestapp ./cmd/wctestapp/main.go
 
 # Create a minimal image
 FROM alpine:latest

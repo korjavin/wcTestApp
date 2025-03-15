@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-wctestapp
+./wctestapp
 
 # Test binary, built with `go test -c`
 *.test
@@ -32,3 +32,4 @@ certs/
 
 # Build artifacts
 dist/
+cmd/wctestapp/main.go
