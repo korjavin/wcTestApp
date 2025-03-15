@@ -151,11 +151,15 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Return the session details
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id":  session.ID,
 		"pairing_uri": pairingURI,
 		"qr_code":     qrCode,
-	})
+	}); err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to encode JSON response: %v", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleSessionStatus handles the session status API endpoint
@@ -178,11 +182,15 @@ func (s *Server) handleSessionStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Return the session status
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id":     session.ID,
 		"status":         session.Status,
 		"wallet_address": session.WalletAddress.Hex(),
-	})
+	}); err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to encode JSON response: %v", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleDisconnectSession handles the disconnect session API endpoint
@@ -219,9 +227,13 @@ func (s *Server) handleDisconnectSession(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 
 	// Return success
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-	})
+	}); err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to encode JSON response: %v", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleSignMessage handles the sign message API endpoint
@@ -279,9 +291,13 @@ func (s *Server) handleSignMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Return the signature
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"signature": signature,
-	})
+	}); err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to encode JSON response: %v", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // GetSignatureDetails gets the details of a signature

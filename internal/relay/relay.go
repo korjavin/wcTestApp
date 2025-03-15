@@ -84,11 +84,16 @@ func (s *RelayServer) handleConnection(conn *websocket.Conn, clientID string) {
 	}()
 
 	// Set read deadline
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		s.logger.Error(fmt.Sprintf("Failed to set read deadline: %v", err))
+		return
+	}
 
 	// Set pong handler
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			s.logger.Error(fmt.Sprintf("Failed to set read deadline in pong handler: %v", err))
+		}
 		return nil
 	})
 
@@ -123,13 +128,10 @@ func (s *RelayServer) pingClient(conn *websocket.Conn) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
-				s.logger.Error(fmt.Sprintf("Failed to send ping: %v", err))
-				return
-			}
+	for range ticker.C {
+		if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+			s.logger.Error(fmt.Sprintf("Failed to send ping: %v", err))
+			return
 		}
 	}
 }
