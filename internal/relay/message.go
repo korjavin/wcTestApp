@@ -8,17 +8,17 @@ import (
 
 // JSONRPCRequest represents a JSON-RPC request
 type JSONRPCRequest struct {
-	ID      int         `json:"id"`
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params"`
+	ID      int    `json:"id"`
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params"`
 }
 
 // JSONRPCResponse represents a JSON-RPC response
 type JSONRPCResponse struct {
 	ID      int           `json:"id"`
 	JSONRPC string        `json:"jsonrpc"`
-	Result  interface{}   `json:"result,omitempty"`
+	Result  any           `json:"result,omitempty"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"slices"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -79,7 +81,7 @@ func (m *SubscriptionManager) Unsubscribe(topic string, clientID string) error {
 	// Remove the subscription
 	for i, sub := range subs {
 		if sub.ClientID == clientID {
-			m.subscriptions[topic] = append(subs[:i], subs[i+1:]...)
+			m.subscriptions[topic] = slices.Delete(subs, i, i+1)
 			m.logger.Info(fmt.Sprintf("Client %s unsubscribed from topic %s", clientID, topic))
 
 			// If there are no more subscriptions for this topic, remove the topic
