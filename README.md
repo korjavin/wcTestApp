@@ -258,5 +258,5 @@ If you're having trouble with WebSocket connections:
 
 ## Acknowledgements
 
-- [WalletConnect](https://walletconnect.com/) for the protocol specification
+- [WalletConnect](https://specs.walletconnect.com/2.0) for the protocol specification
 - The Ethereum community for standards like EIP-191 and EIP-712
