@@ -59,11 +59,42 @@
     
     <section class="card log-card">
         <h2>Connection Logs</h2>
+        <div class="log-controls">
+            <button id="toggle-verbose" class="secondary-button">Show Detailed Logs</button>
+            <button id="clear-logs" class="secondary-button">Clear Logs</button>
+        </div>
         <div id="logs" class="logs">
-            <p class="log-entry">Connected to wallet: {{.WalletAddress}}</p>
+            <p class="log-entry log-info">Connected to wallet: {{.WalletAddress}}</p>
             {{if .Signature}}
-            <p class="log-entry">Message signed successfully.</p>
+            <p class="log-entry log-info">Message signed successfully.</p>
             {{end}}
+        </div>
+        <div id="connection-info" class="connection-info">
+            <h3>WebSocket Connection Details</h3>
+            <div class="info-row">
+                <span class="label">Status:</span>
+                <span class="value" id="ws-status">Connected</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Session ID:</span>
+                <span class="value">{{.SessionID}}</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Protocol:</span>
+                <span class="value" id="ws-protocol">wss</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Messages Sent:</span>
+                <span class="value" id="ws-sent">0</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Messages Received:</span>
+                <span class="value" id="ws-received">0</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Last Activity:</span>
+                <span class="value" id="ws-last-activity">-</span>
+            </div>
         </div>
     </section>
 </div>
@@ -76,32 +107,104 @@
         const messageInput = document.getElementById('message');
         const signatureResult = document.getElementById('signature-result');
         const logs = document.getElementById('logs');
+        const toggleVerboseButton = document.getElementById('toggle-verbose');
+        const clearLogsButton = document.getElementById('clear-logs');
+        const wsStatus = document.getElementById('ws-status');
+        const wsProtocol = document.getElementById('ws-protocol');
+        const wsSent = document.getElementById('ws-sent');
+        const wsReceived = document.getElementById('ws-received');
+        const wsLastActivity = document.getElementById('ws-last-activity');
         
-        function addLog(message) {
+        let verboseLogging = false;
+        let messagesSent = 0;
+        let messagesReceived = 0;
+        
+        // Toggle verbose logging
+        toggleVerboseButton.addEventListener('click', function() {
+            verboseLogging = !verboseLogging;
+            toggleVerboseButton.textContent = verboseLogging ? 'Hide Detailed Logs' : 'Show Detailed Logs';
+            
+            // Add a log entry about the change
+            addLog(`Detailed logging ${verboseLogging ? 'enabled' : 'disabled'}`, 'system');
+        });
+        
+        // Clear logs
+        clearLogsButton.addEventListener('click', function() {
+            logs.innerHTML = '';
+            addLog('Logs cleared', 'system');
+        });
+        
+        function addLog(message, type = 'info') {
+            // Skip verbose logs if verbose logging is disabled
+            if (type === 'verbose' && !verboseLogging) return;
+            
             const logEntry = document.createElement('p');
-            logEntry.className = 'log-entry';
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEntry.className = `log-entry log-${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString() + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
             logs.appendChild(logEntry);
             logs.scrollTop = logs.scrollHeight;
         }
         
+        function updateConnectionInfo(info) {
+            if (info.status) wsStatus.textContent = info.status;
+            if (info.protocol) wsProtocol.textContent = info.protocol;
+            if (info.sent !== undefined) {
+                messagesSent = info.sent;
+                wsSent.textContent = messagesSent;
+            }
+            if (info.received !== undefined) {
+                messagesReceived = info.received;
+                wsReceived.textContent = messagesReceived;
+            }
+            if (info.lastActivity) wsLastActivity.textContent = info.lastActivity;
+            
+            // Update timestamp
+            wsLastActivity.textContent = new Date().toLocaleTimeString() + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+        }
+        
+        // Initialize with connected status
+        addLog(`Active session: ${sessionId}`, 'verbose');
+        addLog(`Connected to wallet: {{.WalletAddress}}`, 'info');
+        
         disconnectButton.addEventListener('click', async function() {
             try {
                 disconnectButton.disabled = true;
-                addLog('Disconnecting wallet...');
+                addLog('Disconnecting wallet...', 'info');
+                updateConnectionInfo({ status: 'Disconnecting...' });
+                
+                // Log detailed request info
+                addLog(`Sending POST request to /api/session/disconnect?session=${sessionId}`, 'verbose');
+                const startTime = new Date();
                 
                 const response = await fetch(`/api/session/disconnect?session=${sessionId}`, {
                     method: 'POST'
                 });
                 
+                const endTime = new Date();
+                const duration = endTime - startTime;
+                addLog(`Received response in ${duration}ms`, 'verbose');
+                
                 if (!response.ok) {
-                    throw new Error('Failed to disconnect session');
+                    addLog(`Server responded with status: ${response.status}`, 'error');
+                    throw new Error(`Failed to disconnect session: ${response.statusText}`);
                 }
                 
-                addLog('Wallet disconnected successfully.');
+                messagesSent++;
+                updateConnectionInfo({
+                    status: 'Disconnected',
+                    sent: messagesSent,
+                    lastActivity: 'Disconnect request'
+                });
+                
+                addLog('Wallet disconnected successfully.', 'info');
+                addLog('Redirecting to home page...', 'verbose');
                 window.location.href = '/';
             } catch (error) {
-                addLog(`Error: ${error.message}`);
+                addLog(`Error: ${error.message}`, 'error');
+                updateConnectionInfo({ status: 'Error disconnecting' });
                 disconnectButton.disabled = false;
             }
         });
@@ -111,14 +214,31 @@
             
             const message = messageInput.value.trim();
             if (!message) {
-                addLog('Error: Message cannot be empty');
+                addLog('Error: Message cannot be empty', 'error');
                 return;
             }
             
             try {
                 const submitButton = signForm.querySelector('button[type="submit"]');
                 submitButton.disabled = true;
-                addLog(`Requesting signature for message: "${message}"`);
+                addLog(`Requesting signature for message: "${message}"`, 'info');
+                
+                // Update connection info
+                updateConnectionInfo({
+                    status: 'Signing message',
+                    lastActivity: 'Signature request'
+                });
+                
+                // Log detailed request info
+                addLog(`Preparing signature request payload`, 'verbose');
+                const payload = JSON.stringify({
+                    session_id: sessionId,
+                    message: message
+                }, null, 2);
+                addLog(`Request payload: ${payload}`, 'verbose');
+                
+                const startTime = new Date();
+                addLog(`Sending POST request to /api/message/sign`, 'verbose');
                 
                 const response = await fetch('/api/message/sign', {
                     method: 'POST',
@@ -131,21 +251,74 @@
                     })
                 });
                 
+                const endTime = new Date();
+                const duration = endTime - startTime;
+                addLog(`Received response in ${duration}ms`, 'verbose');
+                
                 if (!response.ok) {
-                    throw new Error('Failed to sign message');
+                    addLog(`Server responded with status: ${response.status}`, 'error');
+                    throw new Error(`Failed to sign message: ${response.statusText}`);
                 }
                 
+                messagesSent++;
+                messagesReceived++;
+                updateConnectionInfo({
+                    sent: messagesSent,
+                    received: messagesReceived,
+                    lastActivity: 'Signature response'
+                });
+                
                 const data = await response.json();
-                addLog('Message signed successfully.');
+                addLog('Message signed successfully.', 'info');
+                
+                // Log detailed response
+                if (data.signature) {
+                    addLog(`Signature: ${data.signature.substring(0, 20)}...`, 'verbose');
+                }
                 
                 // Redirect to show the signature
+                addLog('Redirecting to display signature...', 'verbose');
                 window.location.href = `/connected?session=${sessionId}&message=${encodeURIComponent(message)}&signature=${encodeURIComponent(data.signature)}`;
             } catch (error) {
-                addLog(`Error: ${error.message}`);
+                addLog(`Error: ${error.message}`, 'error');
+                updateConnectionInfo({ status: 'Error signing message' });
                 const submitButton = signForm.querySelector('button[type="submit"]');
                 submitButton.disabled = false;
             }
         });
     });
 </script>
+
+<style>
+    .log-controls {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    
+    .connection-info {
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-radius: 5px;
+    }
+    
+    .log-info {
+        color: #333;
+    }
+    
+    .log-error {
+        color: #d9534f;
+    }
+    
+    .log-verbose {
+        color: #5bc0de;
+        font-size: 0.9em;
+    }
+    
+    .log-system {
+        color: #5cb85c;
+        font-style: italic;
+    }
+</style>
 {{end}}

@@ -45,10 +45,18 @@ func (s *RelayServer) Start() {
 
 // HandleWebSocket handles WebSocket connections
 func (s *RelayServer) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Log connection attempt with detailed information
+	connectionURL := fmt.Sprintf("%s://%s%s", websocketProtocol(r), r.Host, r.URL.Path)
+	s.logger.Info(fmt.Sprintf("WebSocket connection attempt from %s to %s", r.RemoteAddr, connectionURL))
+	s.logger.Debug(fmt.Sprintf("WebSocket request headers: %+v", r.Header))
+
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Error(fmt.Sprintf("Failed to upgrade connection: %v", err))
+		s.logger.Error(fmt.Sprintf("Connection details: URL=%s, RemoteAddr=%s, Headers=%v",
+			connectionURL, r.RemoteAddr, r.Header))
+		http.Error(w, fmt.Sprintf("WebSocket upgrade failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -60,10 +68,20 @@ func (s *RelayServer) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.clients[conn] = clientID
 	s.mutex.Unlock()
 
-	s.logger.Info(fmt.Sprintf("Client %s connected", clientID))
+	s.logger.Info(fmt.Sprintf("Client %s connected successfully to %s", clientID, connectionURL))
+	s.logger.Debug(fmt.Sprintf("Connection details: Protocol=%s, RemoteAddr=%s",
+		websocketProtocol(r), r.RemoteAddr))
 
 	// Handle the connection
 	go s.handleConnection(conn, clientID)
+}
+
+// websocketProtocol determines if the connection is using wss:// or ws:// based on the request
+func websocketProtocol(r *http.Request) string {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		return "wss"
+	}
+	return "ws"
 }
 
 // handleConnection handles a WebSocket connection
@@ -100,23 +118,40 @@ func (s *RelayServer) handleConnection(conn *websocket.Conn, clientID string) {
 	// Start ping ticker
 	go s.pingClient(conn)
 
+	// Log connection details
+	s.logger.Info(fmt.Sprintf("Starting message loop for client %s", clientID))
+	remoteAddr := conn.RemoteAddr().String()
+	localAddr := conn.LocalAddr().String()
+	s.logger.Debug(fmt.Sprintf("WebSocket connection details - Remote: %s, Local: %s", remoteAddr, localAddr))
+
 	// Read messages from the client
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				s.logger.Error(fmt.Sprintf("Unexpected close error: %v", err))
+				s.logger.Error(fmt.Sprintf("Unexpected close error for client %s: %v", clientID, err))
+				s.logger.Debug(fmt.Sprintf("Connection details - Remote: %s, Local: %s", remoteAddr, localAddr))
+			} else {
+				s.logger.Info(fmt.Sprintf("WebSocket connection closed for client %s: %v", clientID, err))
 			}
 			break
 		}
 
+		// Log the raw message
+		s.logger.Debug(fmt.Sprintf("Received raw message from client %s: %s", clientID, string(message)))
+
 		// Parse the JSON-RPC request
 		request, err := ParseJSONRPCRequest(string(message))
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("Failed to parse JSON-RPC request: %v", err))
+			s.logger.Error(fmt.Sprintf("Failed to parse JSON-RPC request from client %s: %v", clientID, err))
+			s.logger.Debug(fmt.Sprintf("Invalid JSON-RPC message: %s", string(message)))
 			s.sendErrorResponse(conn, 0, -32700, "Parse error")
 			continue
 		}
+
+		// Log the parsed request
+		requestJSON, _ := json.MarshalIndent(request, "", "  ")
+		s.logger.Debug(fmt.Sprintf("Parsed JSON-RPC request from client %s: %s", clientID, string(requestJSON)))
 
 		// Handle the request
 		s.handleRequest(conn, clientID, request)
@@ -248,9 +283,15 @@ func (s *RelayServer) handleUnsubscribe(conn *websocket.Conn, clientID string, r
 // processMessages processes messages in the queue
 func (s *RelayServer) processMessages() {
 	for message := range s.messageQueue {
+		// Log message received from queue
+		s.logger.Debug(fmt.Sprintf("Processing message from queue for topic %s", message.Topic))
+		s.logger.Debug(fmt.Sprintf("Message payload (first 100 chars): %s", truncateString(message.Payload, 100)))
+
 		// Skip expired messages
 		if message.IsExpired() {
-			s.logger.Info(fmt.Sprintf("Skipping expired message for topic %s", message.Topic))
+			ttlSeconds := int(message.ExpiresAt.Sub(message.CreatedAt).Seconds())
+			s.logger.Info(fmt.Sprintf("Skipping expired message for topic %s (TTL: %d seconds, Created: %s)",
+				message.Topic, ttlSeconds, message.CreatedAt.Format(time.RFC3339)))
 			continue
 		}
 
@@ -259,6 +300,11 @@ func (s *RelayServer) processMessages() {
 		if len(subscribers) == 0 {
 			s.logger.Info(fmt.Sprintf("No subscribers for topic %s", message.Topic))
 			continue
+		}
+
+		s.logger.Debug(fmt.Sprintf("Found %d subscribers for topic %s", len(subscribers), message.Topic))
+		for i, subscriber := range subscribers {
+			s.logger.Debug(fmt.Sprintf("Subscriber %d: ClientID=%s", i+1, subscriber.ClientID))
 		}
 
 		// Create a JSON-RPC notification
@@ -275,50 +321,99 @@ func (s *RelayServer) processMessages() {
 		notificationBytes, err := json.Marshal(notification)
 		if err != nil {
 			s.logger.Error(fmt.Sprintf("Failed to marshal notification: %v", err))
+			s.logger.Debug(fmt.Sprintf("Failed notification content: %+v", notification))
 			continue
 		}
 
+		// Log the notification being sent
+		notificationJSON, _ := json.MarshalIndent(notification, "", "  ")
+		s.logger.Debug(fmt.Sprintf("Sending notification: %s", string(notificationJSON)))
+
 		// Send the notification to all subscribers
+		successCount := 0
 		for _, subscriber := range subscribers {
 			err := subscriber.Connection.WriteMessage(websocket.TextMessage, notificationBytes)
 			if err != nil {
 				s.logger.Error(fmt.Sprintf("Failed to send notification to client %s: %v", subscriber.ClientID, err))
+				s.logger.Debug(fmt.Sprintf("Connection details for failed client: %s", subscriber.Connection.RemoteAddr()))
 				// Unsubscribe the client if we can't send messages
 				s.subscriptionManager.UnsubscribeAll(subscriber.ClientID)
+			} else {
+				successCount++
+				s.logger.Debug(fmt.Sprintf("Successfully sent notification to client %s", subscriber.ClientID))
 			}
 		}
 
-		s.logger.Info(fmt.Sprintf("Sent message to %d subscribers for topic %s", len(subscribers), message.Topic))
+		s.logger.Info(fmt.Sprintf("Sent message to %d/%d subscribers for topic %s",
+			successCount, len(subscribers), message.Topic))
 	}
+}
+
+// truncateString truncates a string to the specified length and adds "..." if truncated
+func truncateString(s string, maxLength int) string {
+	if len(s) <= maxLength {
+		return s
+	}
+	return s[:maxLength] + "..."
 }
 
 // sendSuccessResponse sends a success response
 func (s *RelayServer) sendSuccessResponse(conn *websocket.Conn, id int, result interface{}) {
+	// Get client ID for logging
+	s.mutex.RLock()
+	clientID, ok := s.clients[conn]
+	s.mutex.RUnlock()
+
+	if !ok {
+		clientID = "unknown"
+	}
+
 	response := NewJSONRPCResponse(id, result)
 	responseJSON, err := response.ToJSON()
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Failed to marshal response: %v", err))
+		s.logger.Error(fmt.Sprintf("Failed to marshal response for client %s: %v", clientID, err))
 		return
 	}
 
+	// Log the response being sent
+	s.logger.Debug(fmt.Sprintf("Sending success response to client %s: %s", clientID, responseJSON))
+
 	err = conn.WriteMessage(websocket.TextMessage, []byte(responseJSON))
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Failed to send response: %v", err))
+		s.logger.Error(fmt.Sprintf("Failed to send response to client %s: %v", clientID, err))
+		s.logger.Debug(fmt.Sprintf("Failed response content: %s", responseJSON))
+	} else {
+		s.logger.Info(fmt.Sprintf("Successfully sent response to client %s for request ID %d", clientID, id))
 	}
 }
 
 // sendErrorResponse sends an error response
 func (s *RelayServer) sendErrorResponse(conn *websocket.Conn, id int, code int, message string) {
+	// Get client ID for logging
+	s.mutex.RLock()
+	clientID, ok := s.clients[conn]
+	s.mutex.RUnlock()
+
+	if !ok {
+		clientID = "unknown"
+	}
+
 	response := NewJSONRPCErrorResponse(id, code, message)
 	responseJSON, err := response.ToJSON()
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Failed to marshal error response: %v", err))
+		s.logger.Error(fmt.Sprintf("Failed to marshal error response for client %s: %v", clientID, err))
 		return
 	}
 
+	// Log the error response being sent
+	s.logger.Debug(fmt.Sprintf("Sending error response to client %s: %s", clientID, responseJSON))
+
 	err = conn.WriteMessage(websocket.TextMessage, []byte(responseJSON))
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Failed to send error response: %v", err))
+		s.logger.Error(fmt.Sprintf("Failed to send error response to client %s: %v", clientID, err))
+		s.logger.Debug(fmt.Sprintf("Failed error response content: %s", responseJSON))
+	} else {
+		s.logger.Info(fmt.Sprintf("Sent error response to client %s: code=%d, message=%s", clientID, code, message))
 	}
 }
 

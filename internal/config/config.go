@@ -145,7 +145,7 @@ func (c *Config) ExternalURL() string {
 
 // RelayWebSocketURL returns the WebSocket URL for the relay server
 func (c *Config) RelayWebSocketURL() string {
-	protocol := "ws"
+	protocol := "wss" //dirty for caddy
 	if c.EnableTLS {
 		protocol = "wss"
 	}

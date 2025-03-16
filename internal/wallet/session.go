@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -95,8 +96,23 @@ func NewSession() (*Session, error) {
 }
 
 // GeneratePairingURI generates a pairing URI for the session
+// By default, this URI does NOT include the relay server URL, and the wallet app will use its own default relay server.
+// Format: wc:{topic}@2?relay-protocol=irn&symKey={key}
+// If includeRelayURL is true, it will add the relay-url parameter.
 func (s *Session) GeneratePairingURI() string {
-	return fmt.Sprintf("wc:%s@2?relay-protocol=irn&symKey=%s", s.PairingTopic, s.SymKey)
+	// WalletConnect v2 format - does not include relay URL, only the protocol
+	uri := fmt.Sprintf("wc:%s@2?relay-protocol=irn&symKey=%s", s.PairingTopic, s.SymKey)
+	return uri
+}
+
+// GeneratePairingURIWithRelay generates a pairing URI that includes the relay URL
+func (s *Session) GeneratePairingURIWithRelay(relayURL string) string {
+	// URL encode the relay URL
+	encodedRelayURL := url.QueryEscape(relayURL)
+	// WalletConnect v2 format with custom relay URL
+	uri := fmt.Sprintf("wc:%s@2?relay-protocol=irn&relay-url=%s&symKey=%s",
+		s.PairingTopic, encodedRelayURL, s.SymKey)
+	return uri
 }
 
 // IsExpired checks if the session is expired

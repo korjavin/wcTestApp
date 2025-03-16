@@ -125,11 +125,18 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate the pairing URI
-	pairingURI := session.GeneratePairingURI()
+	// Generate the pairing URI with our relay URL
+	relayURL := s.config.RelayWebSocketURL()
+	pairingURI := session.GeneratePairingURIWithRelay(relayURL)
 
-	// Log the pairing URI for debugging
-	s.logger.Info(fmt.Sprintf("Pairing URI: %s", pairingURI))
+	// Also generate the standard URI without relay URL for comparison
+	standardURI := session.GeneratePairingURI()
+
+	// Log the pairing URIs and relay URL for debugging
+	s.logger.Info(fmt.Sprintf("Our Relay URL: %s", relayURL))
+	s.logger.Info(fmt.Sprintf("Standard Pairing URI (no relay): %s", standardURI))
+	s.logger.Info(fmt.Sprintf("Enhanced Pairing URI (with relay): %s", pairingURI))
+	s.logger.Info(fmt.Sprintf("QR Code now contains our relay URL to ensure wallet connects to our server"))
 
 	// Generate a QR code for the pairing URI
 	qrCode, err := utils.GenerateQRCode(pairingURI, 256)

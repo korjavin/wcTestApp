@@ -33,3 +33,4 @@ certs/
 # Build artifacts
 dist/
 wctestapp
+wctestapp-linux

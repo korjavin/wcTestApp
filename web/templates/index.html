@@ -49,8 +49,35 @@
     
     <section class="card log-card">
         <h2>Connection Logs</h2>
+        <div class="log-controls">
+            <button id="toggle-verbose" class="secondary-button">Show Detailed Logs</button>
+            <button id="clear-logs" class="secondary-button">Clear Logs</button>
+        </div>
         <div id="logs" class="logs">
             <p class="log-entry">Waiting for connection...</p>
+        </div>
+        <div id="connection-info" class="connection-info">
+            <h3>WebSocket Connection Details</h3>
+            <div class="info-row">
+                <span class="label">Status:</span>
+                <span class="value" id="ws-status">Not connected</span>
+            </div>
+            <div class="info-row">
+                <span class="label">URL:</span>
+                <span class="value" id="ws-url">-</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Protocol:</span>
+                <span class="value" id="ws-protocol">-</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Messages Received:</span>
+                <span class="value" id="ws-messages">0</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Last Message:</span>
+                <span class="value" id="ws-last-message">-</span>
+            </div>
         </div>
     </section>
 </div>
@@ -62,15 +89,71 @@
         const qrCode = document.getElementById('qr-code');
         const loadingSection = document.getElementById('loading-section');
         const logs = document.getElementById('logs');
+        const toggleVerboseButton = document.getElementById('toggle-verbose');
+        const clearLogsButton = document.getElementById('clear-logs');
+        const wsStatus = document.getElementById('ws-status');
+        const wsUrl = document.getElementById('ws-url');
+        const wsProtocol = document.getElementById('ws-protocol');
+        const wsMessages = document.getElementById('ws-messages');
+        const wsLastMessage = document.getElementById('ws-last-message');
         
         let sessionId = null;
+        let verboseLogging = false;
+        let messageCount = 0;
         
-        function addLog(message) {
+        // Initialize connection info
+        updateConnectionInfo({
+            status: 'Not connected',
+            url: '-',
+            protocol: '-',
+            messages: 0,
+            lastMessage: '-'
+        });
+        
+        // Toggle verbose logging
+        toggleVerboseButton.addEventListener('click', function() {
+            verboseLogging = !verboseLogging;
+            toggleVerboseButton.textContent = verboseLogging ? 'Hide Detailed Logs' : 'Show Detailed Logs';
+            
+            // Add a log entry about the change
+            addLog(`Detailed logging ${verboseLogging ? 'enabled' : 'disabled'}`, 'system');
+        });
+        
+        // Clear logs
+        clearLogsButton.addEventListener('click', function() {
+            logs.innerHTML = '';
+            addLog('Logs cleared', 'system');
+        });
+        
+        function addLog(message, type = 'info') {
+            // Skip verbose logs if verbose logging is disabled
+            if (type === 'verbose' && !verboseLogging) return;
+            
             const logEntry = document.createElement('p');
-            logEntry.className = 'log-entry';
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEntry.className = `log-entry log-${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString() + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
             logs.appendChild(logEntry);
             logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function updateConnectionInfo(info) {
+            if (info.status) wsStatus.textContent = info.status;
+            if (info.url) wsUrl.textContent = info.url;
+            if (info.protocol) wsProtocol.textContent = info.protocol;
+            if (info.messages !== undefined) wsMessages.textContent = info.messages;
+            if (info.lastMessage) wsLastMessage.textContent = info.lastMessage;
+        }
+        
+        function formatJSONMessage(jsonStr) {
+            try {
+                const obj = JSON.parse(jsonStr);
+                return JSON.stringify(obj, null, 2);
+            } catch (e) {
+                return jsonStr;
+            }
         }
         
         connectButton.addEventListener('click', async function() {
@@ -78,32 +161,73 @@
                 // Show loading
                 connectButton.disabled = true;
                 loadingSection.style.display = 'block';
-                addLog('Creating new WalletConnect session...');
+                addLog('Creating new WalletConnect session...', 'info');
+                
+                // Update connection info
+                updateConnectionInfo({
+                    status: 'Initializing...',
+                    url: 'Pending...',
+                    protocol: 'Pending...'
+                });
                 
                 // Create a new session
+                const startTime = new Date();
+                addLog(`Sending POST request to /api/session/create`, 'verbose');
+                
                 const response = await fetch('/api/session/create', {
                     method: 'POST'
                 });
                 
+                const endTime = new Date();
+                const duration = endTime - startTime;
+                
                 if (!response.ok) {
-                    throw new Error('Failed to create session');
+                    addLog(`Server responded with status: ${response.status}`, 'error');
+                    throw new Error(`Failed to create session: ${response.statusText}`);
                 }
+                
+                addLog(`Received response in ${duration}ms`, 'verbose');
                 
                 const data = await response.json();
                 sessionId = data.session_id;
+                
+                // Log detailed session info
+                addLog(`Session created with ID: ${sessionId}`, 'info');
+                
+                // Extract WebSocket URL from pairing URI
+                const wsUrlMatch = data.pairing_uri.match(/wc:([^@]+)@([^?]+)/);
+                const wsUrl = wsUrlMatch ? `wss://${wsUrlMatch[2]}` : 'Unknown';
+                
+                // Update connection info
+                updateConnectionInfo({
+                    status: 'Waiting for wallet connection',
+                    url: wsUrl,
+                    protocol: 'wss'
+                });
                 
                 // Display QR code
                 qrCode.innerHTML = `<img src="${data.qr_code}" alt="QR Code">`;
                 qrSection.style.display = 'block';
                 loadingSection.style.display = 'none';
                 
-                addLog('Session created. Scan the QR code with your wallet.');
-                addLog(`Pairing URI: ${data.pairing_uri}`);
+                addLog('Session created. Scan the QR code with your wallet.', 'info');
+                addLog(`Pairing URI: ${data.pairing_uri}`, 'info');
+                
+                // Log detailed pairing info
+                addLog(`Topic: ${data.topic || 'Not provided'}`, 'verbose');
+                addLog(`Relay Protocol: ${data.relay_protocol || 'wc'}`, 'verbose');
+                addLog(`Relay Data: ${data.relay_data || 'Not provided'}`, 'verbose');
                 
                 // Poll for session status
                 pollSessionStatus();
             } catch (error) {
-                addLog(`Error: ${error.message}`);
+                addLog(`Error: ${error.message}`, 'error');
+                
+                // Update connection info
+                updateConnectionInfo({
+                    status: 'Connection failed'
+                });
+                
                 connectButton.disabled = false;
                 loadingSection.style.display = 'none';
             }
@@ -113,15 +237,28 @@
             if (!sessionId) return;
             
             try {
+                addLog(`Polling session status for session ${sessionId}`, 'verbose');
+                
                 const response = await fetch(`/api/session/status?session=${sessionId}`);
                 if (!response.ok) {
-                    throw new Error('Failed to get session status');
+                    throw new Error(`Failed to get session status: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
                 
+                // Log the response
+                addLog(`Session status: ${data.status}`, 'verbose');
+                
                 if (data.status === 'active') {
-                    addLog(`Connected to wallet: ${data.wallet_address}`);
+                    messageCount++;
+                    updateConnectionInfo({
+                        status: 'Connected',
+                        messages: messageCount,
+                        lastMessage: 'Session activated'
+                    });
+                    
+                    addLog(`Connected to wallet: ${data.wallet_address}`, 'info');
+                    addLog(`Redirecting to connected page...`, 'verbose');
                     window.location.href = `/connected?session=${sessionId}`;
                     return;
                 }
@@ -129,10 +266,50 @@
                 // Continue polling
                 setTimeout(pollSessionStatus, 2000);
             } catch (error) {
-                addLog(`Error polling session status: ${error.message}`);
+                addLog(`Error polling session status: ${error.message}`, 'error');
+                addLog(`Will retry in 5 seconds...`, 'verbose');
+                
+                // Update connection info
+                updateConnectionInfo({
+                    status: 'Polling error, retrying...'
+                });
+                
                 setTimeout(pollSessionStatus, 5000);
             }
         }
     });
 </script>
+
+<style>
+    .log-controls {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    
+    .connection-info {
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-radius: 5px;
+    }
+    
+    .log-info {
+        color: #333;
+    }
+    
+    .log-error {
+        color: #d9534f;
+    }
+    
+    .log-verbose {
+        color: #5bc0de;
+        font-size: 0.9em;
+    }
+    
+    .log-system {
+        color: #5cb85c;
+        font-style: italic;
+    }
+</style>
 {{end}}

@@ -199,12 +199,18 @@ button:disabled {
     margin-top: 2rem;
 }
 
+.log-controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
 .logs {
     background-color: #f8f9fa;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 1rem;
-    height: 200px;
+    height: 300px;
     overflow-y: auto;
     font-family: monospace;
     font-size: 0.9rem;
@@ -213,6 +219,43 @@ button:disabled {
 .log-entry {
     margin-bottom: 0.5rem;
     line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.log-info {
+    color: var(--text-color);
+}
+
+.log-error {
+    color: var(--error-color);
+    font-weight: bold;
+}
+
+.log-verbose {
+    color: var(--primary-color);
+    font-size: 0.85rem;
+}
+
+.log-system {
+    color: var(--success-color);
+    font-style: italic;
+}
+
+/* Connection info styles */
+.connection-info {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f5f5f5;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.connection-info h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 16px;
+    color: var(--secondary-color);
 }
 
 /* Wallet info */
